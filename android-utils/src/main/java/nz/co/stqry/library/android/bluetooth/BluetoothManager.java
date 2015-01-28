@@ -18,7 +18,7 @@ public class BluetoothManager {
     private static final String TAG = BluetoothManager.class.getSimpleName();
 
     private static final String ERROR_ENABLING_BLUETOOTH = "Could not enable bluetooth.";
-    private static final String ERROR_DISABLING_BLUETOOTH = "Could not disable bluethooth.";
+    private static final String ERROR_DISABLING_BLUETOOTH = "Could not disable bluetooth.";
     private static final long TIMEOUT_DELAY = 5000;
     private final Context mContext;
     private Timer mTimer;
@@ -42,9 +42,13 @@ public class BluetoothManager {
     }
 
     public static boolean isBluetoothEnabled() {
-        BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-        return mBluetoothAdapter != null && mBluetoothAdapter.isEnabled();
+        return bluetoothAdapter != null && bluetoothAdapter.isEnabled();
+    }
+
+    public static BluetoothAdapter getBluetoothAdapter() {
+        return BluetoothAdapter.getDefaultAdapter();
     }
 
     public boolean enableBluetooth(boolean enable, BluetoothStateListener bluetoothListener) {

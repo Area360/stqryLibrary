@@ -65,7 +65,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     private final float[] mRemapRorationMatrix;
     private final float[] mOrientation;
 
-    private boolean mTracking;
+    private boolean mTracking = false;
     private float mHeading;
     private float mPitch;
     private GeomagneticField mGeomagneticField;
@@ -86,7 +86,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
                 //Log.d(TAG, "has interference: " + mHasInterference);
             }
             if (sensor.getType() == Sensor.TYPE_ROTATION_VECTOR) {
-                if (accuracy < SensorManager.SENSOR_STATUS_ACCURACY_HIGH)
+                if (accuracy != SensorManager.SENSOR_STATUS_ACCURACY_HIGH)
                     notifyAccuracyChanged();
                 //Log.d(TAG, "has interference: " + mHasInterference);
             }
@@ -118,12 +118,13 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
         }
     };
     private LocationEnabledCallBack mConnectionCallback;
+    private boolean mInitialized = false;
 
     public LocationManager() {
 		mRotationMatrix = new float[16];
 		mRemapRorationMatrix = new float[16];
         mOrientation = new float[9];
-        mListeners = new LinkedHashSet<IChangedListener>();
+        mListeners = new LinkedHashSet<>();
 	}
 	
 	public static LocationManager getInstance() {
@@ -138,6 +139,9 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 	}
 
 	public void initialize(Context context, LocationEnabledCallBack callback) throws Exception {
+
+        if (mInitialized)
+            return;
 
         if (!(context instanceof ActionBarActivity))
             throw new Exception("Context must inherit from ActionBarActivity");
@@ -169,7 +173,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
                 .addOnConnectionFailedListener(this)
                 .build();
         mGoogleApiClient.connect();
-        startRotationSensor();
+        mInitialized = true;
 	}
 
     public boolean isLocationEnabled() {
@@ -197,8 +201,10 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
         alert.show();
     }
 
-    public void startRotationSensor() {
-        mSensorManager = (SensorManager)mActivity.getSystemService(Context.SENSOR_SERVICE);
+    public void startRotationSensor(Context context) {
+        if (mTracking)
+            return;
+        mSensorManager = (SensorManager)context.getSystemService(Context.SENSOR_SERVICE);
         initSensorManager();
     }
 
@@ -425,12 +431,12 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     }
 
     /**
-     * Use the magnetic field to compute true (geographic) north from the specified heading
-     * relative to magnetic north.
-     *
-     * @param heading the heading (in degrees) relative to magnetic north
-     * @return the heading (in degrees) relative to true north
-     */
+         * Use the magnetic field to compute true (geographic) north from the specified heading
+         * relative to magnetic north.
+         *
+         * @param heading the heading (in degrees) relative to magnetic north
+         * @return the heading (in degrees) relative to true north
+         */
     private float computeTrueNorth(float heading) {
         if (mGeomagneticField != null) {
             return heading + mGeomagneticField.getDeclination();
