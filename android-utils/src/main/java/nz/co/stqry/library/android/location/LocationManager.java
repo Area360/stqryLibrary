@@ -1,7 +1,9 @@
 package nz.co.stqry.library.android.location;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.app.DialogFragment;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.DialogInterface.OnKeyListener;
@@ -14,8 +16,6 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.location.Location;
 import android.os.Bundle;
-import android.support.v4.app.DialogFragment;
-import android.support.v7.app.ActionBarActivity;
 import android.util.Log;
 import android.view.KeyEvent;
 
@@ -72,7 +72,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     private boolean mHasInterference;
 	private double mAltitude;
 	private long mTime;
-    private ActionBarActivity mActivity;
+    private Context mContext;
     private float mAccuracy;
     private float mSpeed;
 
@@ -143,13 +143,11 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
         if (mInitialized)
             return;
 
-        if (!(context instanceof ActionBarActivity))
-            throw new Exception("Context must inherit from ActionBarActivity");
-        mActivity = (ActionBarActivity) context;
+        mContext = context;
         mConnectionCallback = callback;
 
         if (!isLocationEnabled())
-            buildAlertMessageNoGps(mActivity);
+            buildAlertMessageNoGps(mContext);
 		mLocationRequest = LocationRequest.create();
 
 		/*
@@ -167,7 +165,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 		 * Create a new location client, using the enclosing class to
 		 * handle callbacks.
 		 */
-        mGoogleApiClient = new GoogleApiClient.Builder(mActivity)
+        mGoogleApiClient = new GoogleApiClient.Builder(mContext)
                 .addApi(LocationServices.API)
                 .addConnectionCallbacks(this)
                 .addOnConnectionFailedListener(this)
@@ -177,7 +175,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 	}
 
     public boolean isLocationEnabled() {
-        android.location.LocationManager manager = (android.location.LocationManager) mActivity.getSystemService(Context.LOCATION_SERVICE);
+        android.location.LocationManager manager = (android.location.LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
 
         return manager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER);
     }
@@ -214,12 +212,12 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 
 	private void initSensorManager() {
 		mSensorManager.registerListener(mSensorListener, mSensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR),
-                SensorManager.SENSOR_DELAY_UI);
+                SensorManager.SENSOR_DELAY_NORMAL);
 
         // The rotation vector sensor doesn't give us accuracy updates, so we observe the
         // magnetic field sensor solely for those.
         mSensorManager.registerListener(mSensorListener, mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD),
-                SensorManager.SENSOR_DELAY_UI);
+                SensorManager.SENSOR_DELAY_NORMAL);
 
         mTracking = true;
 	}
@@ -236,7 +234,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 			try {
 
 				// Start an Activity that tries to resolve the error
-				connectionResult.startResolutionForResult(mActivity, CONNECTION_FAILURE_RESOLUTION_REQUEST);
+				connectionResult.startResolutionForResult((Activity)mContext, CONNECTION_FAILURE_RESOLUTION_REQUEST);
 
 				/*
 				 * Thrown if Google Play services canceled the original
@@ -325,7 +323,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 
 		if (errorDialog == null) {
 			// Get the error dialog from Google Play services
-			errorDialog = GooglePlayServicesUtil.getErrorDialog(errorCode, mActivity, CONNECTION_FAILURE_RESOLUTION_REQUEST);
+			errorDialog = GooglePlayServicesUtil.getErrorDialog(errorCode, (Activity)mContext, CONNECTION_FAILURE_RESOLUTION_REQUEST);
 
 			// If Google Play services can provide an error dialog
 			if (errorDialog != null) {
@@ -336,7 +334,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 						if (keyCode == KeyEvent.KEYCODE_BACK){
 							errorDialog.dismiss();
 							errorDialog = null;
-                            mActivity.finish();
+//                            mActivity.finish();
 							return true;
 						}
 						return false;
@@ -351,7 +349,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 				errorFragment.setDialog(errorDialog);
 				errorFragment.setCancelable(true);
 				// Show the error dialog in the DialogFragment
-				errorFragment.show(mActivity.getSupportFragmentManager(), "Kea");
+				errorFragment.show(((Activity)mContext).getFragmentManager(), "Kea");
 			}
 		}
 	}

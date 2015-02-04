@@ -32,13 +32,18 @@ public class BluetoothManager {
      * Bluetooth listener
      */
     private BluetoothStateListener mListener;
+    private boolean mRegistered = false;
 
     public BluetoothManager(Context context) {
         mContext = context;
         mReceiver = new BluetoothBroadcastReceiver();
+        mTimer = new Timer();
+    }
+
+    public void registerReceiver() {
         IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
         mContext.registerReceiver(mReceiver, filter);
-        mTimer = new Timer();
+        mRegistered = true;
     }
 
     public static boolean isBluetoothEnabled() {
@@ -75,7 +80,10 @@ public class BluetoothManager {
     }
 
     public void unregisterReceiver() {
-        mContext.unregisterReceiver(mReceiver);
+        if (mRegistered) {
+            mContext.unregisterReceiver(mReceiver);
+            mRegistered = false;
+        }
     }
 
     private class BluetoothBroadcastReceiver extends BroadcastReceiver {
