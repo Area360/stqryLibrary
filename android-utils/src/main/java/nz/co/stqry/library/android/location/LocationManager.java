@@ -30,18 +30,19 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import nz.co.stqry.library.android.callback.IChangedListener;
+import nz.co.stqry.library.android.callback.ILocationChangedListener;
 
 
 public class LocationManager implements LocationListener, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
 	protected static final String TAG = "LocationManager";
-	
-	private static volatile LocationManager mInstance = null;
+    private static final int TWO_MINUTES = 2 * 60 * 1000;
+    private static final float DEFAULT_SIGNIFICANT_DISTANCE = 500;
+
+    private static volatile LocationManager mInstance = null;
 
 	private LocationRequest mLocationRequest;
     private GoogleApiClient mGoogleApiClient;
-	private double mRetrievedLatitude = -1;
-	private double mRetrievedLongitude = -1;
     
 	/*
 	 * Constants for location update parameters
@@ -61,6 +62,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 	private boolean hasGooglePlayServices = true;
 	private SensorManager mSensorManager;
 	private final Set<IChangedListener> mListeners;
+    private final Set<ILocationChangedListener> mLocationChangedListeners;
     private final float[] mRotationMatrix;
     private final float[] mRemapRorationMatrix;
     private final float[] mOrientation;
@@ -70,11 +72,13 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     private float mPitch;
     private GeomagneticField mGeomagneticField;
     private boolean mHasInterference;
-	private double mAltitude;
-	private long mTime;
     private Context mContext;
-    private float mAccuracy;
-    private float mSpeed;
+    private LocationEnabledCallBack mConnectionCallback;
+    private boolean mInitialized = false;
+    private Location mLocation = null;
+    private Location mLastSignificantLocation = null;
+    private float mSignificantDistance = DEFAULT_SIGNIFICANT_DISTANCE;
+    private boolean mIsConnected = false;
 
     private SensorEventListener mSensorListener = new SensorEventListener() {
 
@@ -117,14 +121,13 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
             }
         }
     };
-    private LocationEnabledCallBack mConnectionCallback;
-    private boolean mInitialized = false;
 
     public LocationManager() {
 		mRotationMatrix = new float[16];
 		mRemapRorationMatrix = new float[16];
         mOrientation = new float[9];
         mListeners = new LinkedHashSet<>();
+        mLocationChangedListeners = new LinkedHashSet<>();
 	}
 	
 	public static LocationManager getInstance() {
@@ -263,7 +266,6 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 
         LocationServices.FusedLocationApi.requestLocationUpdates(
                 mGoogleApiClient, mLocationRequest, this);
-        mConnectionCallback.onConnected();
     }
 
     @Override
@@ -274,44 +276,71 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     @Override
     public void onLocationChanged(Location location) {
 		if (location != null) {
-			mRetrievedLatitude = location.getLatitude();
-			mRetrievedLongitude = location.getLongitude();
-            mAccuracy = location.getAccuracy();
-			mAltitude = location.getAltitude();
-			mTime = location.getTime();
-            mSpeed = location.getSpeed();
-            updateGeomagneticField();
+            if (isBetterLocation(location, mLocation)) {
+                mLocation = location;
+
+                if (mLastSignificantLocation == null)
+                    mLastSignificantLocation = location;
+                if (mLocation.distanceTo(mLastSignificantLocation) > mSignificantDistance) {
+                    notifyOnLocationChanged();
+                    mLastSignificantLocation = mLocation;
+                }
+                updateGeomagneticField();
+            }
+            if (!mIsConnected) {
+                mConnectionCallback.onConnected();
+                mIsConnected = true;
+            }
 		}
     }
-	/**
-     * Removes a listener from the list of those that will be notified when the user's location or
-     * orientation changes.
+
+    /**
+     * Get the current Location
      */
-    public void removeOnChangedListener(IChangedListener listener) {
+    public Location getLocation() {
+        return mLocation;
+    }
+
+    /**
+     * Set the significant distance value that will trigger the onSignificantLocationChanged callback
+     * @param distance distance between old saved location and the current one
+     */
+    public void setSignificantDistance(float distance) {
+        mSignificantDistance = distance;
+    }
+
+    /**
+     * Adds a listener that will be notified when the user's orientation changes.
+     */
+    public void addOnOrientationChangedListener(IChangedListener listener) {
+        mListeners.add(listener);
+    }
+
+	/**
+     * Removes a listener from the list of those that will be notified when the user's location changes.
+     */
+    public void removeOnOrientationChangedListener(IChangedListener listener) {
         mListeners.remove(listener);
     }
 
+    /**
+     * Adds a listener that will be notified when the user's location or orientation changes.
+     */
+    public void addOnLocationChangedListener(ILocationChangedListener listener) {
+        mLocationChangedListeners.add(listener);
+    }
+
+    /**
+     * Removes a listener from the list of those that will be notified when the user's location changes.
+     */
+    public void removeOnLocationChangedListener(ILocationChangedListener listener) {
+        mLocationChangedListeners.remove(listener);
+    }
 
 	public void stop(){
         if (mGoogleApiClient.isConnected())
             mGoogleApiClient.disconnect();
 	}
-
-	public double getLatitude() {
-		return mRetrievedLatitude;
-	}
-
-	public double getLongitude() {
-		return mRetrievedLongitude;
-	}
-
-    public double getAccuracy() {
-        return mAccuracy;
-    }
-
-    public double getSpeed() {
-        return mSpeed;
-    }
 
 	/**
 	 * Show a dialog returned by Google Play services for the
@@ -354,8 +383,63 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 		}
 	}
 
+    /** Determines whether one Location reading is better than the current Location fix
+     * @param location  The new Location that you want to evaluate
+     * @param currentBestLocation  The current Location fix, to which you want to compare the new one
+     */
+    protected boolean isBetterLocation(Location location, Location currentBestLocation) {
+        if (currentBestLocation == null) {
+            // A new location is always better than no location
+            return true;
+        }
+
+        // Check whether the new location fix is newer or older
+        long timeDelta = location.getTime() - currentBestLocation.getTime();
+        boolean isSignificantlyNewer = timeDelta > TWO_MINUTES;
+        boolean isSignificantlyOlder = timeDelta < -TWO_MINUTES;
+        boolean isNewer = timeDelta > 0;
+
+        // If it's been more than two minutes since the current location, use the new location
+        // because the user has likely moved
+        if (isSignificantlyNewer) {
+            return true;
+            // If the new location is more than two minutes older, it must be worse
+        } else if (isSignificantlyOlder) {
+            return false;
+        }
+
+        // Check whether the new location fix is more or less accurate
+        int accuracyDelta = (int) (location.getAccuracy() - currentBestLocation.getAccuracy());
+        boolean isLessAccurate = accuracyDelta > 0;
+        boolean isMoreAccurate = accuracyDelta < 0;
+        boolean isSignificantlyLessAccurate = accuracyDelta > 200;
+
+        // Check if the old and new location are from the same provider
+        boolean isFromSameProvider = isSameProvider(location.getProvider(), currentBestLocation.getProvider());
+
+        // Determine location quality using a combination of timeliness and accuracy
+        if (isMoreAccurate) {
+            return true;
+        } else if (isNewer && !isLessAccurate) {
+            return true;
+        } else if (isNewer && !isSignificantlyLessAccurate && isFromSameProvider) {
+            return true;
+        }
+        return false;
+    }
+
+    /** Checks whether two providers are the same */
+    private boolean isSameProvider(String provider1, String provider2) {
+        if (provider1 == null) {
+            return provider2 == null;
+        }
+        return provider1.equals(provider2);
+    }
+
     public String getGeoPosition() {
-        return mRetrievedLatitude + ";" + mRetrievedLongitude + ";" + mAltitude + " epu=" + mAccuracy + " hdn=" + mHeading + " spd=" + mSpeed;
+        if (mLocation == null)
+            return null;
+        return mLocation.getLatitude() + ";" + mLocation.getLongitude() + ";" + mLocation.getAltitude() + " epu=" + mLocation.getAccuracy() + " hdn=" + mHeading + " spd=" + mLocation.getSpeed();
     }
 
     /**
@@ -425,7 +509,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
      * Updates the cached instance of the geomagnetic field after a location change.
      */
     private void updateGeomagneticField() {
-        mGeomagneticField = new GeomagneticField((float) mRetrievedLatitude, (float) mRetrievedLongitude, (float)mAltitude, mTime);
+        mGeomagneticField = new GeomagneticField((float) mLocation.getLatitude(), (float) mLocation.getLongitude(), (float)mLocation.getAltitude(), mLocation.getTime());
     }
 
     /**
@@ -460,12 +544,14 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
             listener.onOrientationChanged(this);
         }
     }
-    
+
     /**
-     * Adds a listener that will be notified when the user's location or orientation changes.
+     * Notifies all listeners that the user's orientation has changed.
      */
-    public void addOnChangedListener(IChangedListener listener) {
-        mListeners.add(listener);
+    private void notifyOnLocationChanged() {
+        for (ILocationChangedListener listener : mLocationChangedListeners) {
+            listener.onSignificantLocationChanged();
+        }
     }
 
     public interface LocationEnabledCallBack {

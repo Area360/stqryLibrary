@@ -33,6 +33,25 @@ public class BluetoothManager {
      */
     private BluetoothStateListener mListener;
     private boolean mRegistered = false;
+    private boolean mRegisteredForRestart = false;
+    private BluetoothStateListener mRestartBluetoothListener = new BluetoothStateSimpleListener() {
+
+        @Override
+        public void bluetoothStateOn() {
+            if (mRegisteredForRestart)
+                unregisterReceiver();
+        }
+
+        @Override
+        public void bluetoothStateOff() {
+            enableBluetooth(true, mRestartBluetoothListener);
+        }
+
+        @Override
+        public void bluetoothError() {
+            Log.e(TAG, "Error occurred while turning Bluetooth on, please reboot your phone");
+        }
+    };
 
     public BluetoothManager(Context context) {
         mContext = context;
@@ -84,6 +103,14 @@ public class BluetoothManager {
             mContext.unregisterReceiver(mReceiver);
             mRegistered = false;
         }
+    }
+
+    public void restartBluetooth() {
+        if (!mRegistered) {
+            registerReceiver();
+            mRegisteredForRestart = true;
+        }
+        enableBluetooth(false, mRestartBluetoothListener);
     }
 
     private class BluetoothBroadcastReceiver extends BroadcastReceiver {
