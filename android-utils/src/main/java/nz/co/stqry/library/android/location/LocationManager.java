@@ -26,6 +26,7 @@ import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -62,7 +63,7 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
 	private boolean hasGooglePlayServices = true;
 	private SensorManager mSensorManager;
 	private final Set<IChangedListener> mListeners;
-    private final Set<ILocationChangedListener> mLocationChangedListeners;
+    private final Set<LocationChangedData> mLocationChangedListeners;
     private final float[] mRotationMatrix;
     private final float[] mRemapRorationMatrix;
     private final float[] mOrientation;
@@ -76,7 +77,6 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     private LocationEnabledCallBack mConnectionCallback;
     private boolean mInitialized = false;
     private Location mLocation = null;
-    private Location mLastSignificantLocation = null;
     private float mSignificantDistance = DEFAULT_SIGNIFICANT_DISTANCE;
     private boolean mIsConnected = false;
 
@@ -279,11 +279,13 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
             if (isBetterLocation(location, mLocation)) {
                 mLocation = location;
 
-                if (mLastSignificantLocation == null)
-                    mLastSignificantLocation = location;
-                if (mLocation.distanceTo(mLastSignificantLocation) > mSignificantDistance) {
-                    notifyOnLocationChanged();
-                    mLastSignificantLocation = mLocation;
+                for (LocationChangedData data : mLocationChangedListeners) {
+                    if (data.getLastLocation() == null)
+                        data.setLastLocation(mLocation);
+                    if (mLocation.distanceTo(data.getLastLocation()) > data.getDistance()) {
+                        data.getCallback().onSignificantLocationChanged();
+                        data.setLastLocation(mLocation);
+                    }
                 }
                 updateGeomagneticField();
             }
@@ -299,14 +301,6 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
      */
     public Location getLocation() {
         return mLocation;
-    }
-
-    /**
-     * Set the significant distance value that will trigger the onSignificantLocationChanged callback
-     * @param distance distance between old saved location and the current one
-     */
-    public void setSignificantDistance(float distance) {
-        mSignificantDistance = distance;
     }
 
     /**
@@ -326,15 +320,24 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     /**
      * Adds a listener that will be notified when the user's location or orientation changes.
      */
-    public void addOnLocationChangedListener(ILocationChangedListener listener) {
-        mLocationChangedListeners.add(listener);
+    public void addOnLocationChangedListener(ILocationChangedListener listener, double distance) {
+        LocationChangedData locationChangedData = new LocationChangedData(listener, distance, mLocation);
+        mLocationChangedListeners.add(locationChangedData);
     }
 
     /**
      * Removes a listener from the list of those that will be notified when the user's location changes.
      */
     public void removeOnLocationChangedListener(ILocationChangedListener listener) {
-        mLocationChangedListeners.remove(listener);
+        Iterator i = mLocationChangedListeners.iterator();
+        while (i.hasNext()) {
+            LocationChangedData data = (LocationChangedData) i.next();
+
+            if (data.getCallback() == listener) {
+                i.remove();
+                break;
+            }
+        }
     }
 
 	public void stop(){
@@ -542,15 +545,6 @@ public class LocationManager implements LocationListener, GoogleApiClient.Connec
     private void notifyOrientationChanged() {
         for (IChangedListener listener : mListeners) {
             listener.onOrientationChanged(this);
-        }
-    }
-
-    /**
-     * Notifies all listeners that the user's orientation has changed.
-     */
-    private void notifyOnLocationChanged() {
-        for (ILocationChangedListener listener : mLocationChangedListeners) {
-            listener.onSignificantLocationChanged();
         }
     }
 
